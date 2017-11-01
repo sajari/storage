@@ -4,6 +4,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"golang.org/x/net/context"
 )
 
@@ -30,4 +35,22 @@ func (s *S3) Delete(ctx context.Context, path string) error {
 // Walk implements FS.
 func (s *S3) Walk(ctx context.Context, path string, fn WalkFn) error {
 	return fmt.Errorf("Walk not implemented for S3")
+}
+
+func (s *S3) s3Client(ctx context.Context) (*s3.S3, error) {
+	sess, err := session.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("s3: unable to create session: %v", err)
+	}
+
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#GetBucketRegion
+	region := aws.StringValue(sess.Config.Region)
+	if len(region) == 0 {
+		region, err = s3manager.GetBucketRegion(context.Background(), sess, s.Bucket, endpoints.UsEast1RegionID)
+		if err != nil {
+			return nil, fmt.Errorf("s3: unable to find bucket region: %v", err)
+		}
+	}
+
+	return s3.New(sess, aws.NewConfig().WithRegion(region)), nil
 }
