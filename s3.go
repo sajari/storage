@@ -56,7 +56,19 @@ func (s *S3) Create(ctx context.Context, path string) (io.WriteCloser, error) {
 
 // Delete implements FS.
 func (s *S3) Delete(ctx context.Context, path string) error {
-	return fmt.Errorf("Delete not implemented for S3")
+	sh, err := s.s3Client(ctx)
+	if err != nil {
+		return err
+	}
+
+	if _, err := sh.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(path),
+	}); err != nil {
+		return fmt.Errorf("s3: unable to delete object: %v", err)
+	}
+
+	return nil
 }
 
 // Walk implements FS.
