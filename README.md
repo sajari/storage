@@ -102,7 +102,17 @@ f.Close()
 
 ## S3
 
-Not yet implemented!  Watch this space.
+S3 is the default implmentation for AWS S3. This uses [aws-sdk-go/aws/session.NewSession](http://docs.aws.amazon.com/sdk-for-go/api/aws/session/#NewSession) for authentication.
+
+```go
+store := storage.S3{Bucket:"some-bucket"}
+f, err := store.Open(context.Background(), "file.json") // will fetch "s3://some-bucket/file.json
+if err != nil {
+	// ...
+}
+// ...
+f.Close()
+```
 
 ## Wrappers and Helpers
 
