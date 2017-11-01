@@ -102,7 +102,7 @@ f.Close()
 
 ## S3
 
-S3 is the default implmentation for AWS S3. This uses [aws-sdk-go/aws/session.NewSession](http://docs.aws.amazon.com/sdk-for-go/api/aws/session/#NewSession) for authentication.
+S3 is the default implementation for AWS S3. This uses [aws-sdk-go/aws/session.NewSession](http://docs.aws.amazon.com/sdk-for-go/api/aws/session/#NewSession) for authentication.
 
 ```go
 store := storage.S3{Bucket:"some-bucket"}
