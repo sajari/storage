@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -19,7 +20,33 @@ type S3 struct {
 
 // Open implements FS.
 func (s *S3) Open(ctx context.Context, path string) (*File, error) {
-	return nil, fmt.Errorf("Open not implemented for S3")
+	sh, err := s.s3Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	obj, err := sh.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(path),
+	})
+
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() == s3.ErrCodeNoSuchKey {
+				return nil, &notExistError{
+					Path: path,
+				}
+			}
+		}
+		return nil, fmt.Errorf("s3: unable to fetch object: %v", err)
+	}
+
+	return &File{
+		ReadCloser: obj.Body,
+		Name:       path,
+		ModTime:    *obj.LastModified,
+		Size:       *obj.ContentLength,
+	}, nil
 }
 
 // Create implements FS.
