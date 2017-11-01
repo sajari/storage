@@ -73,7 +73,32 @@ func (s *S3) Delete(ctx context.Context, path string) error {
 
 // Walk implements FS.
 func (s *S3) Walk(ctx context.Context, path string, fn WalkFn) error {
-	return fmt.Errorf("Walk not implemented for S3")
+	sh, err := s.s3Client(ctx)
+	if err != nil {
+		return err
+	}
+
+	errCh := make(chan error, 1)
+
+	err = sh.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+		Bucket: aws.String(s.Bucket),
+		Prefix: aws.String(path),
+	}, func(page *s3.ListObjectsOutput, last bool) bool {
+		for _, obj := range page.Contents {
+			if err := fn(*obj.Key); err != nil {
+				errCh <- err
+				return false
+			}
+		}
+		return last
+	})
+
+	if err != nil {
+		return fmt.Errorf("s3: unable to walk: %v", err)
+	}
+
+	close(errCh)
+	return <-errCh
 }
 
 func (s *S3) s3Client(ctx context.Context) (*s3.S3, error) {
