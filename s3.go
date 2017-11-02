@@ -58,9 +58,11 @@ func (s *S3) Create(ctx context.Context, path string) (io.WriteCloser, error) {
 
 	uploader := s3manager.NewUploaderWithClient(sh)
 
-	return &Writer{
-		bucket:   s.Bucket,
-		key:      path,
+	return &writer{
+		input: &s3manager.UploadInput{
+			Bucket: aws.String(s.Bucket),
+			Key:    aws.String(path),
+		},
 		ctx:      ctx,
 		uploader: uploader,
 	}, nil
@@ -133,73 +135,58 @@ func (s *S3) s3Client(ctx context.Context) (*s3.S3, error) {
 	return s3.New(sess, aws.NewConfig().WithRegion(region)), nil
 }
 
-// NOTE: This Writer impl is based on the storage.Writer impl in cloud.google.com/go/storage
-// https://github.com/GoogleCloudPlatform/google-cloud-go/blob/master/storage/writer.go#L30:L73
+// NOTE: This writer impl is based on the storage.Writer impl in cloud.google.com/go/storage
+// https://github.com/GoogleCloudPlatform/google-cloud-go/blob/master/storage/writer.go#L30:L73xwx
+type writer struct {
+	input *s3manager.UploadInput
 
-// Writer writes an S3 object.
-type Writer struct {
-	bucket string
-	key    string
-
-	uploader *s3manager.Uploader
 	ctx      context.Context
+	uploader *s3manager.Uploader
+	pw       *io.PipeWriter
 
-	opened bool
-	pw     *io.PipeWriter
-
-	donec chan struct{}
-	err   error
+	open bool
+	done chan struct{}
+	err  error
 }
 
-func (w *Writer) open() {
+func (w *writer) start() {
 	pr, pw := io.Pipe()
 	w.pw = pw
-	w.opened = true
-	w.donec = make(chan struct{})
+	w.done = make(chan struct{})
+	w.open = true
 
-	go func() {
-		defer close(w.donec)
-
-		_, err := w.uploader.UploadWithContext(w.ctx, &s3manager.UploadInput{
-			Bucket: aws.String(w.bucket),
-			Key:    aws.String(w.key),
-			Body:   pr,
-		})
-
-		if err != nil {
-			w.err = err
-			pr.CloseWithError(w.err)
-		}
-	}()
+	go w.worker(pr)
 }
 
-// Write appends to w. It implements the io.Writer interface.
-func (w *Writer) Write(p []byte) (n int, err error) {
+func (w *writer) worker(pr *io.PipeReader) {
+	defer close(w.done)
+
+	w.input.Body = pr
+	if _, err := w.uploader.UploadWithContext(w.ctx, w.input); err != nil {
+		w.err = err
+		pr.CloseWithError(w.err)
+	}
+}
+
+// Write implements io.WriteCloser
+func (w *writer) Write(p []byte) (int, error) {
 	if w.err != nil {
 		return 0, w.err
 	}
-	if !w.opened {
-		w.open()
+	if !w.open {
+		w.start()
 	}
 	return w.pw.Write(p)
 }
 
-// Close completes the write operation and flushes any buffered data.
-func (w *Writer) Close() error {
-	if !w.opened {
-		w.open()
+// Close implements io.WriteCloser
+func (w *writer) Close() error {
+	if !w.open {
+		w.start()
 	}
 	if err := w.pw.Close(); err != nil {
 		return err
 	}
-	<-w.donec
+	<-w.done
 	return w.err
-}
-
-// CloseWithError aborts the write operation with the provided error.
-func (w *Writer) CloseWithError(err error) error {
-	if !w.opened {
-		return nil
-	}
-	return w.pw.CloseWithError(err)
 }
