@@ -19,7 +19,7 @@ import (
 
 // S3 is an implementation of FS which uses AWS S3 as the underlying storage layer.
 type S3 struct {
-	Bucket string // bucket is the name of the bucket to use as the underlying storage.
+	Bucket string // Bucket is the name of the bucket to use as the underlying storage.
 }
 
 // Open implements FS.
