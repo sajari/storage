@@ -7,7 +7,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -110,16 +109,14 @@ func (s *S3) bucketHandles(ctx context.Context) (*blob.Bucket, *s3.S3, error) {
 		}
 	}
 
-	c := aws.NewConfig().
-		WithRegion(region).
-		WithCredentials(credentials.NewEnvCredentials())
+	c := aws.NewConfig().WithRegion(region)
 	sess = sess.Copy(c)
 
 	b, err := s3blob.OpenBucket(ctx, sess, s.Bucket)
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3: could not open %q: %v", s.Bucket, err)
 	}
-	s3 := s3.New(sess, c)
+	s3c := s3.New(sess, c)
 
-	return b, s3, nil
+	return b, s3c, nil
 }
