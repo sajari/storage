@@ -65,14 +65,14 @@ type FS interface {
 // FSFromURL takes a file system path and returns a FSWalker
 // corresponding to a supported storage system (CloudStorage,
 // S3, or Local if no platform-specific prefix is used).
-func FSFromURL(path string) FS {
+func FSFromURL(ctx context.Context, path string) (FS, error) {
 	if strings.HasPrefix(path, "gs://") {
-		return &CloudStorage{Bucket: strings.TrimPrefix(path, "gs://")}
+		return newCloudStorage(ctx, strings.TrimPrefix(path, "gs://"))
 	}
 	if strings.HasPrefix(path, "s3://") {
-		return &S3{Bucket: strings.TrimPrefix(path, "s3://")}
+		return &S3{Bucket: strings.TrimPrefix(path, "s3://")}, nil
 	}
-	return Local(path)
+	return Local(path), nil
 }
 
 // Prefix creates a FS which wraps fs and prefixes all paths with prefix.
