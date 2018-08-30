@@ -7,66 +7,64 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
 
+	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
-	"cloud.google.com/go/storage"
+	"github.com/google/go-cloud/blob"
+	"github.com/google/go-cloud/blob/gcsblob"
+	"github.com/google/go-cloud/gcp"
 )
 
 // CloudStorage implements FS and uses Google Cloud Storage as the underlying
 // file storage.
 type CloudStorage struct {
-	Bucket string
+	Bucket string // Bucket is the name of the bucket to use as the underlying storage.
 }
+
+var _ FS = (*CloudStorage)(nil)
 
 // Open implements FS.
 func (c *CloudStorage) Open(ctx context.Context, path string) (*File, error) {
-	bh, err := c.bucketHandle(ctx, storage.ScopeReadOnly)
+	b, err := c.blobBucketHandle(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	obj := bh.Object(path)
-	attrs, err := obj.Attrs(ctx)
+	f, err := b.NewReader(ctx, path)
 	if err != nil {
-		if err == storage.ErrObjectNotExist {
+		if blob.IsNotExist(err) {
 			return nil, &notExistError{
 				Path: path,
 			}
 		}
-		return nil, fmt.Errorf("cloud storage: error fetching object attributes: %v", err)
-	}
-
-	r, err := obj.NewReader(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("cloud storage: error fetching object reader for '%v': %v", path, err)
+		return nil, err
 	}
 
 	return &File{
-		ReadCloser: r,
-		Name:       attrs.Name,
-		ModTime:    attrs.Updated,
-		Size:       attrs.Size,
+		ReadCloser: f,
+		Name:       path,
+		Size:       f.Size(),
+		ModTime:    f.ModTime(),
 	}, nil
 }
 
 // Create implements FS.
 func (c *CloudStorage) Create(ctx context.Context, path string) (io.WriteCloser, error) {
-	bh, err := c.bucketHandle(ctx, storage.ScopeReadWrite)
+	b, err := c.blobBucketHandle(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	return bh.Object(path).NewWriter(ctx), nil
+	return b.NewWriter(ctx, path, nil)
 }
 
 // Delete implements FS.
 func (c *CloudStorage) Delete(ctx context.Context, path string) error {
-	bh, err := c.bucketHandle(ctx, storage.ScopeReadWrite)
+	b, err := c.blobBucketHandle(ctx)
 	if err != nil {
 		return err
 	}
-	return bh.Object(path).Delete(ctx)
+	return b.Delete(ctx, path)
 }
 
 // Walk implements FS.
@@ -95,6 +93,18 @@ func (c *CloudStorage) Walk(ctx context.Context, path string, fn WalkFn) error {
 		}
 	}
 	return nil
+}
+
+func (c *CloudStorage) blobBucketHandle(ctx context.Context) (*blob.Bucket, error) {
+	dc, err := gcp.DefaultCredentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cl, err := gcp.NewHTTPClient(gcp.DefaultTransport(), gcp.CredentialsTokenSource(dc))
+	if err != nil {
+		return nil, err
+	}
+	return gcsblob.OpenBucket(ctx, c.Bucket, cl)
 }
 
 func (c *CloudStorage) bucketHandle(ctx context.Context, scope string) (*storage.BucketHandle, error) {

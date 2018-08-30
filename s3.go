@@ -5,6 +5,15 @@ import (
 	"io"
 
 	"golang.org/x/net/context"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+
+	"github.com/google/go-cloud/blob"
+	"github.com/google/go-cloud/blob/s3blob"
 )
 
 // S3 is an implementation of FS which uses AWS S3 as the underlying storage layer.
@@ -14,20 +23,100 @@ type S3 struct {
 
 // Open implements FS.
 func (s *S3) Open(ctx context.Context, path string) (*File, error) {
-	return nil, fmt.Errorf("Open not implemented for S3")
+	b, _, err := s.bucketHandles(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := b.NewReader(ctx, path)
+	if err != nil {
+		if blob.IsNotExist(err) {
+			return nil, &notExistError{
+				Path: path,
+			}
+		}
+		return nil, fmt.Errorf("s3: unable to fetch object: %v", err)
+	}
+
+	return &File{
+		ReadCloser: f,
+		Name:       path,
+		Size:       f.Size(),
+		ModTime:    f.ModTime(),
+	}, nil
 }
 
 // Create implements FS.
 func (s *S3) Create(ctx context.Context, path string) (io.WriteCloser, error) {
-	return nil, fmt.Errorf("Create not implemented for S3")
+	b, _, err := s.bucketHandles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return b.NewWriter(ctx, path, nil)
 }
 
 // Delete implements FS.
 func (s *S3) Delete(ctx context.Context, path string) error {
-	return fmt.Errorf("Delete not implemented for S3")
+	b, _, err := s.bucketHandles(ctx)
+	if err != nil {
+		return err
+	}
+	return b.Delete(ctx, path)
 }
 
 // Walk implements FS.
 func (s *S3) Walk(ctx context.Context, path string, fn WalkFn) error {
-	return fmt.Errorf("Walk not implemented for S3")
+	_, s3c, err := s.bucketHandles(ctx)
+	if err != nil {
+		return err
+	}
+
+	errCh := make(chan error, 1)
+	err = s3c.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+		Bucket: aws.String(s.Bucket),
+		Prefix: aws.String(path),
+	}, func(page *s3.ListObjectsOutput, last bool) bool {
+		for _, obj := range page.Contents {
+			if err := fn(*obj.Key); err != nil {
+				errCh <- err
+				return false
+			}
+		}
+		return last
+	})
+	if err != nil {
+		return fmt.Errorf("s3: unable to walk: %v", err)
+	}
+
+	close(errCh)
+	return <-errCh
+}
+
+const bucketRegionHint = endpoints.UsEast1RegionID
+
+func (s *S3) bucketHandles(ctx context.Context) (*blob.Bucket, *s3.S3, error) {
+	sess, err := session.NewSession()
+	if err != nil {
+		return nil, nil, fmt.Errorf("s3: unable to create session: %v", err)
+	}
+
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#GetBucketRegion
+	region := aws.StringValue(sess.Config.Region)
+	if len(region) == 0 {
+		region, err = s3manager.GetBucketRegion(ctx, sess, s.Bucket, bucketRegionHint)
+		if err != nil {
+			return nil, nil, fmt.Errorf("s3: unable to find bucket region: %v", err)
+		}
+	}
+
+	c := aws.NewConfig().WithRegion(region)
+	sess = sess.Copy(c)
+
+	b, err := s3blob.OpenBucket(ctx, sess, s.Bucket)
+	if err != nil {
+		return nil, nil, fmt.Errorf("s3: could not open %q: %v", s.Bucket, err)
+	}
+	s3c := s3.New(sess, c)
+
+	return b, s3c, nil
 }
