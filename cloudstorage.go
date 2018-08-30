@@ -41,11 +41,11 @@ func (c *CloudStorage) Open(ctx context.Context, path string) (*File, error) {
 		return nil, err
 	}
 
-	// XXX(@benhinchley): https://github.com/google/go-cloud/pull/240
 	return &File{
 		ReadCloser: f,
 		Name:       path,
 		Size:       f.Size(),
+		ModTime:    f.ModTime(),
 	}, nil
 }
 

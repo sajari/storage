@@ -38,11 +38,11 @@ func (s *S3) Open(ctx context.Context, path string) (*File, error) {
 		return nil, fmt.Errorf("s3: unable to fetch object: %v", err)
 	}
 
-	// XXX(@benhinchley): https://github.com/google/go-cloud/pull/240
 	return &File{
 		ReadCloser: f,
 		Name:       path,
 		Size:       f.Size(),
+		ModTime:    f.ModTime(),
 	}, nil
 }
 
@@ -70,8 +70,8 @@ func (s *S3) Walk(ctx context.Context, path string, fn WalkFn) error {
 	if err != nil {
 		return err
 	}
-	errCh := make(chan error, 1)
 
+	errCh := make(chan error, 1)
 	err = s3c.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
 		Bucket: aws.String(s.Bucket),
 		Prefix: aws.String(path),
