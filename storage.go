@@ -1,6 +1,6 @@
 // Package storage provides types and functionality for abstracting storage systems (Local, in memory, S3, Google Cloud
 // storage) into a common interface.
-package storage // import "code.sajari.com/storage"
+package storage // import "github.com/sajari/storage"
 
 import (
 	"fmt"
